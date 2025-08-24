@@ -26,6 +26,9 @@
 #include <asm/hyperv-tlfs.h>
 #include <asm/mshyperv.h>
 
+DEFINE_PER_CPU(u64, cdx_lockup_data); //cdx
+void cdx_ftrace_dump(void);
+
 static struct clock_event_device __percpu *hv_clock_event;
 /* Note: offset can hold negative values after hibernation. */
 static u64 hv_sched_clock_offset __read_mostly;
@@ -52,6 +55,12 @@ static int stimer0_irq = -1;
 static int stimer0_message_sint;
 static __maybe_unused DEFINE_PER_CPU(long, stimer0_evt);
 
+//cdx
+static union {
+	struct ms_hyperv_tsc_page page;
+	u8 reserved[PAGE_SIZE];
+} tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
+
 /*
  * Common code for stimer0 interrupts coming via Direct Mode or
  * as a VMbus message.
@@ -59,8 +68,21 @@ static __maybe_unused DEFINE_PER_CPU(long, stimer0_evt);
 void hv_stimer0_isr(void)
 {
 	struct clock_event_device *ce;
+	u64 this_cnt;
 
 	ce = this_cpu_ptr(hv_clock_event);
+	if ((this_cnt = this_cpu_read(cdx_lockup_data)) > 0) {
+		trace_printk("cdx: err: hv_stimer0_isr: this_cnt=%llu, refcnt_msr=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx, event_handler=%pS\n",
+		  this_cnt, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), rdtsc_ordered(),
+		  tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset, ce->event_handler);
+		this_cpu_inc(cdx_lockup_data);
+	}
+
+	if (this_cpu_read(cdx_lockup_data) > 5000) {
+		this_cpu_write(cdx_lockup_data, 1);
+		cdx_ftrace_dump();
+	}
+
 	ce->event_handler(ce);
 }
 EXPORT_SYMBOL_GPL(hv_stimer0_isr);
@@ -75,13 +97,35 @@ static irqreturn_t __maybe_unused hv_stimer0_percpu_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+
+
 static int hv_ce_set_next_event(unsigned long delta,
 				struct clock_event_device *evt)
 {
-	u64 current_tick;
+	u64 current_tick, orig_tick;
+	u64 this_cnt;
 
 	current_tick = hv_read_reference_counter();
+	orig_tick = current_tick;
 	current_tick += delta;
+
+	if (current_tick > (u64)10000000 *600) //a timer fires in 600s??
+		WARN_ONCE(1, "cdx: next_stimer: refcnt=%llu (msr=%llu), delta=%lu, written=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+		  orig_tick, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), delta, current_tick, rdtsc_ordered(),
+		  tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+
+	if ((this_cnt = this_cpu_read(cdx_lockup_data)) > 0) {
+		trace_printk("cdx: err: stimer_next_event: this_cnt=%llu, refcnt=%llu (msr=%llu), delta=%lu, written=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+		  this_cnt, orig_tick, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), delta, current_tick, rdtsc_ordered(),
+		  tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+		this_cpu_inc(cdx_lockup_data);
+	}
+
+	if (this_cpu_read(cdx_lockup_data) > 5000) {
+		this_cpu_write(cdx_lockup_data, 1);
+		cdx_ftrace_dump();
+	}
+
 	hv_set_register(HV_REGISTER_STIMER0_COUNT, current_tick);
 	return 0;
 }
@@ -402,10 +446,12 @@ static __always_inline u64 read_hv_clock_msr(void)
  * Hyper-V and 32-bit x86.  The TSC reference page version is preferred.
  */
 
+#if 0
 static union {
 	struct ms_hyperv_tsc_page page;
 	u8 reserved[PAGE_SIZE];
 } tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
+#endif
 
 static struct ms_hyperv_tsc_page *tsc_page = &tsc_pg.page;
 static unsigned long tsc_pfn;
@@ -432,8 +478,19 @@ static __always_inline u64 read_hv_clock_tsc(void)
 	 * times are in sync and monotonic. Therefore we can fall back
 	 * to the MSR in case the TSC page indicates unavailability.
 	 */
-	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time))
+	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time)) {
 		time = read_hv_clock_msr();
+
+		WARN_ONCE(1, "cdx: read_hv_clock_tsc: time=%llu, tsc_was=%llu, refcnt_msr=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+		  time, cur_tsc, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), rdtsc_ordered(),
+		  tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	} else {
+
+		if (time > (u64)10000000 *600) //the VM has been running for 10 minutes?
+			WARN_ONCE(1, "cdx: read_hv_clock_tsc: time=%llu, refcnt_msr=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+			time, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), rdtsc_ordered(),
+			tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	}
 
 	return time;
 }

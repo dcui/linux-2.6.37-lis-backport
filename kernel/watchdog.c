@@ -461,6 +461,8 @@ static int softlockup_fn(void *data)
 	return 0;
 }
 
+DECLARE_PER_CPU(u64, cdx_lockup_data); //cdx
+
 /* watchdog kicker functions */
 static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 {
@@ -536,9 +538,10 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 		update_report_ts();
 
 		printk_cpu_sync_get_irqsave(flags);
-		pr_emerg("BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
+		pr_emerg("cdx: BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
 			smp_processor_id(), duration,
 			current->comm, task_pid_nr(current));
+		this_cpu_inc(cdx_lockup_data); //cdx
 		print_modules();
 		print_irqtrace_events(current);
 		if (regs)
