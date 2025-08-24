@@ -52,6 +52,12 @@ static int stimer0_irq = -1;
 static int stimer0_message_sint;
 static __maybe_unused DEFINE_PER_CPU(long, stimer0_evt);
 
+//cdx
+union hv_tsc_pg {
+	struct ms_hyperv_tsc_page page;
+	u8 reserved[PAGE_SIZE];
+} tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
+
 /*
  * Common code for stimer0 interrupts coming via Direct Mode or
  * as a VMbus message.
@@ -78,10 +84,17 @@ static irqreturn_t __maybe_unused hv_stimer0_percpu_isr(int irq, void *dev_id)
 static int hv_ce_set_next_event(unsigned long delta,
 				struct clock_event_device *evt)
 {
-	u64 current_tick;
+	u64 current_tick, orig_tick;
 
 	current_tick = hv_read_reference_counter();
+	orig_tick = current_tick;
 	current_tick += delta;
+
+	if (current_tick > (u64)10000000 *600) //a timer fires in 600s??
+		WARN_ONCE(1, "cdx: next_stimer: refcnt=%llu (msr=%llu), delta=%lu, written=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+		  orig_tick, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), delta, current_tick, rdtsc_ordered(),
+		  tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+
 	hv_set_register(HV_REGISTER_STIMER0_COUNT, current_tick);
 	return 0;
 }
@@ -402,10 +415,12 @@ static __always_inline u64 read_hv_clock_msr(void)
  * Hyper-V and 32-bit x86.  The TSC reference page version is preferred.
  */
 
+#if 0
 static union {
 	struct ms_hyperv_tsc_page page;
 	u8 reserved[PAGE_SIZE];
 } tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
+#endif
 
 static struct ms_hyperv_tsc_page *tsc_page = &tsc_pg.page;
 static unsigned long tsc_pfn;
@@ -422,7 +437,8 @@ struct ms_hyperv_tsc_page *hv_get_tsc_page(void)
 }
 EXPORT_SYMBOL_GPL(hv_get_tsc_page);
 
-static __always_inline u64 read_hv_clock_tsc(void)
+extern u64 read_hv_clock_tsc(void);
+u64 read_hv_clock_tsc(void)
 {
 	u64 cur_tsc, time;
 
@@ -432,8 +448,19 @@ static __always_inline u64 read_hv_clock_tsc(void)
 	 * times are in sync and monotonic. Therefore we can fall back
 	 * to the MSR in case the TSC page indicates unavailability.
 	 */
-	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time))
+	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time)) {
 		time = read_hv_clock_msr();
+
+		WARN_ONCE(1, "cdx: read_hv_clock_tsc: 1: falled back to msr: time=%llu, tsc_was=%llu, refcnt_msr=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+		  time, cur_tsc, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), rdtsc_ordered(),
+		  tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	} else {
+
+		if (time > (u64)10000000 *600) //the VM has been running for 10 minutes?
+			WARN_ONCE(1, "cdx: read_hv_clock_tsc: time=%llu, refcnt_msr=%llu, tsc=0x%llx, tsc_pg: seq=%d, scale=%llx, off=%llx\n",
+			time, hv_raw_get_register(HV_REGISTER_TIME_REF_COUNT), rdtsc_ordered(),
+			tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	}
 
 	return time;
 }
