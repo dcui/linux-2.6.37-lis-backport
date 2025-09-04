@@ -326,12 +326,6 @@ static const struct sysrq_key_op sysrq_showstate_blocked_op = {
 #ifdef CONFIG_TRACING
 #include <linux/ftrace.h>
 
-void cdx_ftrace_dump(void);
-void cdx_ftrace_dump(void)
-{
-	ftrace_dump(DUMP_ALL);
-}
-
 static void sysrq_ftrace_dump(u8 key)
 {
 	ftrace_dump(DUMP_ALL);
