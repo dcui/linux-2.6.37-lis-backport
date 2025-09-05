@@ -80,11 +80,15 @@ static int hyperv_init_ghcb(void)
 	return 0;
 }
 
+void cdx_print_tsc_and_refcnt(void *reason_str);
+
 static int hv_cpu_init(unsigned int cpu)
 {
 	union hv_vp_assist_msr_contents msr = { 0 };
 	struct hv_vp_assist_page **hvp;
 	int ret;
+
+	cdx_print_tsc_and_refcnt("cpu_online");
 
 	ret = hv_common_cpu_init(cpu);
 	if (ret)

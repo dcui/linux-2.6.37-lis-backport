@@ -6,8 +6,8 @@
 #include <linux/param.h>
 #include <linux/spinlock_types_raw.h>
 
-#define DEFAULT_RATELIMIT_INTERVAL	(5 * HZ)
-#define DEFAULT_RATELIMIT_BURST		10
+#define DEFAULT_RATELIMIT_INTERVAL	(60 * HZ)
+#define DEFAULT_RATELIMIT_BURST		5
 
 /* issue num suppressed message on exit */
 #define RATELIMIT_MSG_ON_RELEASE	BIT(0)

@@ -17,6 +17,7 @@
 #include <linux/clocksource.h>
 #include <linux/sched_clock.h>
 #include <linux/mm.h>
+#include <linux/delay.h>
 #include <linux/cpuhotplug.h>
 #include <linux/interrupt.h>
 #include <linux/irq.h>
@@ -52,6 +53,15 @@ static int stimer0_irq = -1;
 static int stimer0_message_sint;
 static __maybe_unused DEFINE_PER_CPU(long, stimer0_evt);
 
+#if 1
+union hyperv_tsc_pg {
+	struct ms_hyperv_tsc_page page;
+	u8 reserved[PAGE_SIZE];
+} tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
+
+static struct ms_hyperv_tsc_page *tsc_page = &tsc_pg.page;
+#endif
+
 /*
  * Common code for stimer0 interrupts coming via Direct Mode or
  * as a VMbus message.
@@ -59,6 +69,28 @@ static __maybe_unused DEFINE_PER_CPU(long, stimer0_evt);
 void hv_stimer0_isr(void)
 {
 	struct clock_event_device *ce;
+	u64 cur_tsc, time;
+	u64 ref_msr;
+
+	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time)) {
+		time =  __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+		WARN_ONCE(1, "cdx: the VM is being migrated: time=%llu\n", time);
+	}
+
+	ref_msr = __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+
+	if ((ref_msr > time + 10000000 * 1) || (time > ref_msr+10000000 * 1)) {
+		int cpu = raw_smp_processor_id();
+
+		if (cpu % 2 == 0)
+			printk_ratelimited("cdx: ERR_isr1: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+		else
+			printk_ratelimited("cdx: ERR_isr2: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	}
 
 	ce = this_cpu_ptr(hv_clock_event);
 	ce->event_handler(ce);
@@ -79,8 +111,46 @@ static int hv_ce_set_next_event(unsigned long delta,
 				struct clock_event_device *evt)
 {
 	u64 current_tick;
+	u64 cur_tsc, time;
+	u64 ref_msr;
 
 	current_tick = hv_read_reference_counter();
+
+	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time)) {
+		time =  __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+		WARN_ONCE(1, "cdx: the VM is being migrated: time=%llu\n", time);
+	}
+
+	ref_msr = __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+
+	if (current_tick >= 10000000ull * 86400 * 365) {
+		int cpu = raw_smp_processor_id();
+
+		if (cpu % 2 == 0)
+			printk_ratelimited("cdx: ERR_next1: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc_pg0=%llu (%lld, 0x%llx), tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time,
+				current_tick, current_tick, current_tick, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+		else
+			printk_ratelimited("cdx: ERR_next2: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc_pg0=%llu (%lld, 0x%llx), tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time,
+				current_tick, current_tick, current_tick, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	}
+
+	if ((ref_msr > time + 10000000 * 1) || (time > ref_msr+10000000 * 1)) {
+		int cpu = raw_smp_processor_id();
+
+		if (cpu % 2 == 0)
+			printk_ratelimited("cdx: ERR_next3: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, diff2=%lld, delta=%ld, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time, time - current_tick, delta, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+		else
+			printk_ratelimited("cdx: ERR_next4: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, diff2=%lld, delta=%ld, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time, time - current_tick, delta, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	}
+
 	current_tick += delta;
 	hv_set_register(HV_REGISTER_STIMER0_COUNT, current_tick);
 	return 0;
@@ -402,12 +472,15 @@ static __always_inline u64 read_hv_clock_msr(void)
  * Hyper-V and 32-bit x86.  The TSC reference page version is preferred.
  */
 
-static union {
+#if 0
+union hyperv_tsc_pg {
 	struct ms_hyperv_tsc_page page;
 	u8 reserved[PAGE_SIZE];
 } tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
 
 static struct ms_hyperv_tsc_page *tsc_page = &tsc_pg.page;
+#endif
+
 static unsigned long tsc_pfn;
 
 unsigned long hv_get_tsc_pfn(void)
@@ -422,9 +495,12 @@ struct ms_hyperv_tsc_page *hv_get_tsc_page(void)
 }
 EXPORT_SYMBOL_GPL(hv_get_tsc_page);
 
-static __always_inline u64 read_hv_clock_tsc(void)
+u64 read_hv_clock_tsc(void);
+u64 read_hv_clock_tsc(void)
 {
 	u64 cur_tsc, time;
+	u64 ref_msr;
+
 
 	/*
 	 * The Hyper-V Top-Level Function Spec (TLFS), section Timers,
@@ -432,8 +508,55 @@ static __always_inline u64 read_hv_clock_tsc(void)
 	 * times are in sync and monotonic. Therefore we can fall back
 	 * to the MSR in case the TSC page indicates unavailability.
 	 */
-	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time))
+	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time)) {
 		time = read_hv_clock_msr();
+		WARN_ONCE(1, "cdx: the VM is being migrated: time=%llu\n", time);
+	}
+
+	ref_msr = __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+
+	if ((ref_msr > time + 10000000 * 1) || (time > ref_msr+10000000 * 1)) {
+		int cpu = raw_smp_processor_id();
+
+		if (cpu % 2 == 0)
+			printk_ratelimited("cdx: ERR_read1: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+		else
+			printk_ratelimited("cdx: ERR_read2: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+				cpu, time, time, ref_msr, ref_msr - time, cur_tsc,
+				tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+	}
+
+	// Is the time via HV TSC page bigger than 1 year?!
+	if (time >= 10000000ull * 86400 * 365) {
+		printk("cdx: ERR_read3: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, tsc=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+			raw_smp_processor_id(), time, time, ref_msr, cur_tsc,
+			tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+
+
+		for (int i = 0; i < 100; i++) {
+			int cpu = raw_smp_processor_id();
+			u64 tsc1 = rdtsc_ordered();
+			u64 hv_tsc_pg;
+			u64 tsc2;
+
+			if (!hv_read_tsc_page_tsc(tsc_page, &tsc1, &hv_tsc_pg)) {
+				hv_tsc_pg = read_hv_clock_msr();
+				WARN_ONCE(1, "cdx: the VM is being migrated!!!: time=%llu\n", hv_tsc_pg);
+			}
+
+			ref_msr = __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+			tsc2 = rdtsc_ordered();
+
+			printk("cdx: on cpu%02d: tsc_pg=%llu (%lld), ref_msr=%llu, ref_diff=%lld, tsc1=%llu, tsc2=%llu, tsc_diff=%llu, i=%02d, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+			cpu, hv_tsc_pg, hv_tsc_pg, ref_msr, ref_msr - hv_tsc_pg,
+			tsc1, tsc2, tsc2 - tsc1, i,
+			tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+
+			mdelay(10);
+		}
+	}
 
 	return time;
 }

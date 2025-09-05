@@ -114,11 +114,16 @@ static const struct sysrq_key_op sysrq_loglevel_op = {
 };
 
 #ifdef CONFIG_VT
+void cdx_print_tsc_and_refcnt_on_all_cpus(void);
 static void sysrq_handle_SAK(u8 key)
 {
+#if 0
 	struct work_struct *SAK_work = &vc_cons[fg_console].SAK_work;
 
 	schedule_work(SAK_work);
+#else
+	cdx_print_tsc_and_refcnt_on_all_cpus();
+#endif
 }
 static const struct sysrq_key_op sysrq_SAK_op = {
 	.handler	= sysrq_handle_SAK,

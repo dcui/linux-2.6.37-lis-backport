@@ -461,6 +461,43 @@ static int softlockup_fn(void *data)
 	return 0;
 }
 
+struct ms_hyperv_tsc_page {
+	volatile u32 tsc_sequence;
+	u32 reserved1;
+	volatile u64 tsc_scale;
+	volatile s64 tsc_offset;
+} __packed;
+
+extern union hyperv_tsc_pg {
+	struct ms_hyperv_tsc_page page;
+	u8 reserved[PAGE_SIZE];
+} tsc_pg __bss_decrypted __aligned(PAGE_SIZE);
+
+extern u64 read_hv_clock_tsc(void);
+
+#define HV_REGISTER_TIME_REF_COUNT              0x40000020
+
+void cdx_print_tsc_and_refcnt(void *reason_str);
+void cdx_print_tsc_and_refcnt(void *reason_str)
+{
+	int cpu = raw_smp_processor_id();
+	u64 tsc1 = rdtsc_ordered();
+	u64 hv_tsc_pg = read_hv_clock_tsc();
+	u64 ref_msr = __rdmsr(HV_REGISTER_TIME_REF_COUNT);
+	u64 tsc2 = rdtsc_ordered();
+
+	printk("cdx: on cpu%02d: reason=%s, tsc_pg=%llu, ref_msr=%llu, ref_diff=%lld, tsc1=%llu, tsc2=%llu, tsc_diff=%llu, tsc_pg: seq=%d, scale=0x%llx, off=%llu\n",
+		cpu, (const char *)reason_str, hv_tsc_pg, ref_msr, ref_msr - hv_tsc_pg,
+		tsc1, tsc2, tsc2 - tsc1,
+		tsc_pg.page.tsc_sequence, tsc_pg.page.tsc_scale, tsc_pg.page.tsc_offset);
+}
+
+void cdx_print_tsc_and_refcnt_on_all_cpus(void);
+void cdx_print_tsc_and_refcnt_on_all_cpus(void) //from sysrq
+{
+	on_each_cpu(cdx_print_tsc_and_refcnt, "sysrq", 0);
+}
+
 /* watchdog kicker functions */
 static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 {
@@ -536,9 +573,12 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 		update_report_ts();
 
 		printk_cpu_sync_get_irqsave(flags);
-		pr_emerg("BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
+		pr_emerg("cdx: BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
 			smp_processor_id(), duration,
 			current->comm, task_pid_nr(current));
+
+		on_each_cpu(cdx_print_tsc_and_refcnt, "IPI", 0);
+
 		print_modules();
 		print_irqtrace_events(current);
 		if (regs)
