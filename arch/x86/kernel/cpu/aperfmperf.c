@@ -467,16 +467,25 @@ static inline void bp_init_freq_invariance(void) { }
 static inline void scale_freq_tick(u64 acnt, u64 mcnt) { }
 #endif /* CONFIG_X86_64 && CONFIG_SMP */
 
+u64 read_hv_clock_tsc(void);
+
 void arch_scale_freq_tick(void)
 {
 	struct aperfmperf *s = this_cpu_ptr(&cpu_samples);
 	u64 acnt, mcnt, aperf, mperf;
+	u64 t1, t2, t3;
 
 	if (!cpu_feature_enabled(X86_FEATURE_APERFMPERF))
 		return;
 
+	t1 = read_hv_clock_tsc();
 	rdmsrq(MSR_IA32_APERF, aperf);
+	t2 = read_hv_clock_tsc();
 	rdmsrq(MSR_IA32_MPERF, mperf);
+	t3 = read_hv_clock_tsc();
+	if (t3 > t1 + 10000000) // if t3 is bigger than t1 by >1 second, print a message
+		pr_err("cdx: on cpu%d, rdmsr: t1=%lld, t2=%lld, t3=%lld, delta1=%lld, delta2=%lld\n",
+			raw_smp_processor_id(), t1, t2, t3, t2-t1, t3-t2);
 	acnt = aperf - s->aperf;
 	mcnt = mperf - s->mperf;
 

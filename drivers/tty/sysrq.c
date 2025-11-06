@@ -273,6 +273,14 @@ static void sysrq_handle_showallcpus(u8 key)
 	}
 }
 
+void cdx_sysrq_handle_showallcpus(void);
+void cdx_sysrq_handle_showallcpus(void)
+{
+	pr_err("cdx: calling sysrq_handle_showallcpus with l ====>\n");
+	sysrq_handle_showallcpus('l');
+	pr_err("cdx: calling sysrq_handle_showallcpus with l: done: <=======================\n");
+}
+
 static const struct sysrq_key_op sysrq_showallcpus_op = {
 	.handler	= sysrq_handle_showallcpus,
 	.help_msg	= "show-backtrace-all-active-cpus(l)",

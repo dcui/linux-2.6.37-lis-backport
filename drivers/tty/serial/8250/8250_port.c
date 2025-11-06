@@ -394,16 +394,44 @@ static u32 mem32be_serial_in(struct uart_port *p, unsigned int offset)
 }
 
 #ifdef CONFIG_HAS_IOPORT
+u64 read_hv_clock_tsc(void);
+
 static u32 io_serial_in(struct uart_port *p, unsigned int offset)
 {
+	u32 ret;
+	u64 t1, t2;
+	t1 = read_hv_clock_tsc();
+
 	offset = offset << p->regshift;
-	return inb(p->iobase + offset);
+	ret = inb(p->iobase + offset);
+
+	t2 = read_hv_clock_tsc();
+	if (t2 > t1 + 30000000) { // if t2 is bigger than t1 by >3 second, print a message 
+		trace_printk("cdx: on cpu%d, inb: t1=%lld, t2=%lld, delta1=%lld, val=0x%x, port=0x%lx\n",
+			raw_smp_processor_id(), t1, t2, t2-t1,
+			ret, p->iobase + offset);
+
+		pr_err("cdx: on cpu%d, inb: t1=%lld, t2=%lld, delta1=%lld, val=0x%x, port=0x%lx\n",
+			raw_smp_processor_id(), t1, t2, t2-t1,
+			ret, p->iobase + offset);
+	}
+	return ret;
 }
 
 static void io_serial_out(struct uart_port *p, unsigned int offset, u32 value)
 {
+	u64 t1, t2;
+	t1 = read_hv_clock_tsc();
+
 	offset = offset << p->regshift;
 	outb(value, p->iobase + offset);
+
+	t2 = read_hv_clock_tsc();
+	if (t2 > t1 + 30000000) // if t2 is bigger than t1 by >3 second, print a message
+		pr_err("cdx: on cpu%d, outb: t1=%lld, t2=%lld, delta1=%lld, val=0x%x, port=0x%lx\n",
+			raw_smp_processor_id(), t1, t2, t2-t1,
+			value, p->iobase + offset);
+
 }
 #endif
 static u32 no_serial_in(struct uart_port *p, unsigned int offset)
@@ -1966,10 +1994,14 @@ static void serial8250_break_ctl(struct uart_port *port, int break_state)
 	serial8250_rpm_put(up);
 }
 
+u64 read_hv_clock_tsc(void);
+
 /* Returns true if @bits were set, false on timeout */
 static bool wait_for_lsr(struct uart_8250_port *up, int bits)
 {
 	unsigned int status, tmout;
+	u64 t1, t2, t3;
+
 
 	/*
 	 * Wait for a character to be sent. Fallback to a safe default
@@ -1980,16 +2012,29 @@ static bool wait_for_lsr(struct uart_8250_port *up, int bits)
 	else
 		tmout = 10000;
 
+	t1 = read_hv_clock_tsc();
 	for (;;) {
 		status = serial_lsr_in(up);
+		t2 = read_hv_clock_tsc();
+		trace_printk("cdx: on cpu%d, wait_for_lsr: t1=%lld, t2=%lld, delta1=%lld, status=0x%x, bits=0x%x, bool=%d, timeout=%d\n",
+			raw_smp_processor_id(), t1, t2, t2-t1, status, bits, !!((status & bits) == bits), tmout);
 
 		if ((status & bits) == bits)
 			break;
 		if (--tmout == 0)
 			break;
-		udelay(1);
+		mdelay(1);
 		touch_nmi_watchdog();
 	}
+
+	t3 = read_hv_clock_tsc();
+	if (t3 > t1 + 30000000) { // if t3 is bigger than t1 by >3 second, print a message
+	    trace_printk("cdx: on cpu%d, wait_for_lsr: t1=%lld, t3=%lld, delta1=%lld, status=0x%x, timeout=%d\n",
+			raw_smp_processor_id(), t1, t3, t3-t1,	status, tmout);
+	    pr_err("cdx: on cpu%d, wait_for_lsr: t1=%lld, t3=%lld, delta1=%lld, status=0x%x, timeout=%d\n",
+			raw_smp_processor_id(), t1, t3, t3-t1,	status, tmout);
+	}
+
 
 	return (tmout != 0);
 }

@@ -423,7 +423,8 @@ struct ms_hyperv_tsc_page *hv_get_tsc_page(void)
 }
 EXPORT_SYMBOL_GPL(hv_get_tsc_page);
 
-static __always_inline u64 read_hv_clock_tsc(void)
+u64 read_hv_clock_tsc(void);
+u64 read_hv_clock_tsc(void)
 {
 	u64 cur_tsc, time;
 
