@@ -125,6 +125,43 @@ static int hv_ce_set_oneshot(struct clock_event_device *evt)
 }
 
 /*
+ * It's been reported that very rarely the raw TSC reading during early boot
+ * on the CPUs below may be slightly smaller than expected:
+ * AMD EPYC 7452 32-Core Processor (family: 0x17, model: 0x31, stepping: 0x0)
+ * AMD EPYC 7763 64-Core Processor (family: 0x19, model: 0x1, stepping: 0x1)
+ * As a result, the calculated time from the Hyper-V TSC page is smaller than
+ * expected, meaning that when we use the time of the Hyper-V TSC page to
+ * program the Hyper-V timer, the timer may fire immediately and cause a
+ * timer interrupt storm during early boot: during Linux's early boot,
+ * Linux stays in periodic timer mode (i.e. Linux keeps programming the timer
+ * in single-shot mode at a frequency of CONFIG_HZ) for a short while before
+ * it switches the timer to the on-demand tickless mode; in the periodic timer
+ * mode, Linux timer interrupt handler reprograms the timer before the handler
+ * finishes, causing a new timer interrupt and hence the handler runs again,
+ * which causes another timer interrupt and the handler runs over and over
+ * again, and consequently the vCPU ends up in soft lockup.
+ *
+ * It looks like the smaller-than-expected TSC reading only rarely happens
+ * during early boot, and later the TSC reading becomes normal. While we're
+ * trying to understand why this happens, let's lower the rating of the
+ * Hyper-V timer in favor of the Local APIC timer, which doesn't rely on TSC,
+ * and hence does not suffer from the rare timer interrupt storm.
+ */
+static bool hv_timer_is_unreliable(void)
+{
+	if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD)
+		return false;
+
+	if (boot_cpu_data.x86 == 0x17 && boot_cpu_data.x86_model == 0x31)
+		return true;
+
+	if (boot_cpu_data.x86 == 0x19 && boot_cpu_data.x86_model == 0x1)
+		return true;
+
+	return false;
+}
+
+/*
  * hv_stimer_init - Per-cpu initialization of the clockevent
  */
 static int hv_stimer_init(unsigned int cpu)
@@ -152,6 +189,10 @@ static int hv_stimer_init(unsigned int cpu)
 		ce->rating = 90;
 	else
 		ce->rating = 1000;
+
+	/* Lower the rating of the Hyper-V timer in favor of the APIC timer */
+	if (hv_timer_is_unreliable())
+		ce->rating = 90;
 
 	ce->set_state_shutdown = hv_ce_shutdown;
 	ce->set_state_oneshot = hv_ce_set_oneshot;
