@@ -115,8 +115,8 @@ static unsigned long default_nareas;
 struct io_tlb_area {
 	unsigned long used;
 	unsigned int index;
-	spinlock_t lock;
-};
+	spinlock_t ____cacheline_aligned_in_smp lock;
+} ____cacheline_aligned_in_smp;
 
 /*
  * Round up number of slabs to the next power of 2. The last area is going
@@ -283,6 +283,7 @@ static void swiotlb_init_io_tlb_pool(struct io_tlb_pool *mem, phys_addr_t start,
 
 	for (i = 0; i < mem->nareas; i++) {
 		spin_lock_init(&mem->areas[i].lock);
+		printk("cdx: swiotlb area lock on vp%ld = 0x%px\n", i, &mem->areas[i].lock);
 		mem->areas[i].index = 0;
 		mem->areas[i].used = 0;
 	}

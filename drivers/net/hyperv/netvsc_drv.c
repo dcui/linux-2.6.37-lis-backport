@@ -2504,6 +2504,7 @@ static int netvsc_probe(struct hv_device *dev,
 	struct netvsc_device *nvdev;
 	int ret = -ENOMEM;
 
+	dev->device.use_priv_pages_for_io = true;
 	net = alloc_etherdev_mq(sizeof(struct net_device_context),
 				VRSS_CHANNEL_MAX);
 	if (!net)

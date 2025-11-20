@@ -1948,6 +1948,7 @@ static int storvsc_probe(struct hv_device *device,
 	int max_sub_channels = 0;
 	u32 max_xfer_bytes;
 
+	device->device.use_priv_pages_for_io = true;
 	/*
 	 * We support sub-channels for storage on SCSI and FC controllers.
 	 * The number of sub-channels offerred is based on the number of

@@ -63,6 +63,7 @@ static void __init pci_swiotlb_detect(void)
 		x86_swiotlb_enable = true;
 		x86_swiotlb_flags |= SWIOTLB_FORCE;
 	}
+	x86_swiotlb_flags |= SWIOTLB_ANY;
 }
 #else
 static inline void __init pci_swiotlb_detect(void)

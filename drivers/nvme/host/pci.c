@@ -3251,6 +3251,7 @@ static int nvme_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct nvme_dev *dev;
 	int result = -ENOMEM;
 
+	pdev->dev.use_priv_pages_for_io = true;
 	dev = nvme_pci_alloc_dev(pdev, id);
 	if (IS_ERR(dev))
 		return PTR_ERR(dev);
