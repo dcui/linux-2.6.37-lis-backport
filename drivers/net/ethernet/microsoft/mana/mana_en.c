@@ -63,6 +63,7 @@ static int mana_open(struct net_device *ndev)
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
 	int err;
+	printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	err = mana_alloc_queues(ndev);
 
 	if (err) {
@@ -78,6 +79,7 @@ static int mana_open(struct net_device *ndev)
 	netif_carrier_on(ndev);
 	netif_tx_wake_all_queues(ndev);
 	netdev_dbg(ndev, "%s successful\n", __func__);
+	printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 	return 0;
 }
 

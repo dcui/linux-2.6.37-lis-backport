@@ -1882,6 +1882,8 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	int bar = 0;
 	int err;
 
+	printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
+
 	/* Each port has 2 CQs, each CQ has at most 1 EQE at a time */
 	BUILD_BUG_ON(2 * MAX_PORTS_IN_MANA_DEV * GDMA_EQE_SIZE > EQ_SIZE);
 
@@ -1941,6 +1943,7 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (err)
 		goto cleanup_mana;
 
+	printk("cdx: %s: 9: line %d\n", __func__, __LINE__);
 	return 0;
 
 cleanup_mana:
@@ -1973,8 +1976,11 @@ static void mana_gd_remove(struct pci_dev *pdev)
 {
 	struct gdma_context *gc = pci_get_drvdata(pdev);
 
+	printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	mana_rdma_remove(&gc->mana_ib);
+	printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 	mana_remove(&gc->mana, false);
+	printk("cdx: %s: 3: line %d\n", __func__, __LINE__);
 
 	mana_gd_cleanup(pdev);
 
@@ -1988,10 +1994,13 @@ static void mana_gd_remove(struct pci_dev *pdev)
 
 	vfree(gc);
 
+	printk("cdx: %s: 4: line %d\n", __func__, __LINE__);
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
+	printk("cdx: %s: 5: line %d\n", __func__, __LINE__);
 
 	dev_dbg(&pdev->dev, "mana gdma remove successful\n");
+	printk("cdx: %s: 6: line %d\n", __func__, __LINE__);
 }
 
 /* The 'state' parameter is not used. */

@@ -3488,6 +3488,7 @@ int dev_ethtool(struct net *net, struct ifreq *ifr, void __user *useraddr)
 	if (!state)
 		return -ENOMEM;
 
+	printk("cdx:  dev_ethtool: cmd=%d\n", ethcmd);
 	switch (ethcmd) {
 	case ETHTOOL_FLASHDEV:
 		if (copy_from_user(&state->efl, useraddr, sizeof(state->efl))) {

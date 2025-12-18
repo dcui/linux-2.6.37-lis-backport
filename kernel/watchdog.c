@@ -46,7 +46,7 @@ unsigned long __read_mostly watchdog_enabled;
 int __read_mostly watchdog_user_enabled = 1;
 static int __read_mostly watchdog_hardlockup_user_enabled = WATCHDOG_HARDLOCKUP_DEFAULT;
 static int __read_mostly watchdog_softlockup_user_enabled = 1;
-int __read_mostly watchdog_thresh = 10;
+int __read_mostly watchdog_thresh = 5;
 static int __read_mostly watchdog_thresh_next;
 static int __read_mostly watchdog_hardlockup_available;
 
@@ -327,7 +327,7 @@ static void lockup_detector_update_enable(void)
 #define SOFTLOCKUP_DELAY_REPORT	ULONG_MAX
 
 #ifdef CONFIG_SMP
-int __read_mostly sysctl_softlockup_all_cpu_backtrace;
+int __read_mostly sysctl_softlockup_all_cpu_backtrace = 1;
 #endif
 
 static struct cpumask watchdog_allowed_mask __read_mostly;
@@ -823,6 +823,12 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 
 		if (softlockup_all_cpu_backtrace) {
 			trigger_allbutcpu_cpu_backtrace(smp_processor_id());
+
+
+		pr_err("cdx: calling sysrq_handle_showallcpus with w ====>\n");
+		show_state_filter(TASK_UNINTERRUPTIBLE);
+		pr_err("cdx: calling sysrq_handle_showallcpus with w: done: <=======================\n");
+
 			if (!softlockup_panic)
 				clear_bit_unlock(0, &soft_lockup_nmi_warn);
 		}

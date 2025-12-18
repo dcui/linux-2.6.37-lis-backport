@@ -2961,7 +2961,9 @@ static void hv_eject_device_work(struct work_struct *work)
 	hpdev = container_of(work, struct hv_pci_dev, wrk);
 	hbus = hpdev->hbus;
 
+	printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	mutex_lock(&hbus->state_lock);
+	printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 
 	/*
 	 * Ejection can come before or after the PCI bus has been set up, so
@@ -2971,10 +2973,14 @@ static void hv_eject_device_work(struct work_struct *work)
 	 */
 	wslot = wslot_to_devfn(hpdev->desc.win_slot.slot);
 	pdev = pci_get_domain_bus_and_slot(hbus->bridge->domain_nr, 0, wslot);
+	printk("cdx: %s: 3: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 	if (pdev) {
 		pci_lock_rescan_remove();
+		printk("cdx: %s: 4: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 		pci_stop_and_remove_bus_device(pdev);
+		printk("cdx: %s: 5: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 		pci_dev_put(pdev);
+		printk("cdx: %s: 6: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 		pci_unlock_rescan_remove();
 	}
 
@@ -2985,6 +2991,7 @@ static void hv_eject_device_work(struct work_struct *work)
 	if (hpdev->pci_slot)
 		pci_destroy_slot(hpdev->pci_slot);
 
+	printk("cdx: %s: 7: line %d\n", __func__, __LINE__);
 	memset(&ctxt, 0, sizeof(ctxt));
 	ejct_pkt = (struct pci_eject_response *)ctxt.buffer;
 	ejct_pkt->message_type.type = PCI_EJECTION_COMPLETE;
@@ -3001,6 +3008,7 @@ static void hv_eject_device_work(struct work_struct *work)
 	/* hpdev has been freed. Do not use it any more. */
 
 	mutex_unlock(&hbus->state_lock);
+	printk("cdx: %s: 8: line %d\n", __func__, __LINE__);
 }
 
 /**
