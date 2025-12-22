@@ -207,12 +207,24 @@ static int mana_gd_detect_devices(struct pci_dev *pdev)
 	return gc->mana.dev_id.type == 0 ? -ENODEV : 0;
 }
 
+
+u64 read_hv_clock_tsc(void);
 int mana_gd_send_request(struct gdma_context *gc, u32 req_len, const void *req,
 			 u32 resp_len, void *resp)
 {
 	struct hw_channel_context *hwc = gc->hwc.driver_data;
+	u64 t1, t2;
+	int ret;
 
-	return mana_hwc_send_request(hwc, req_len, req, resp_len, resp);
+	t1 = read_hv_clock_tsc();
+	ret = mana_hwc_send_request(hwc, req_len, req, resp_len, resp);
+	t2 = read_hv_clock_tsc();
+	if (t2 > t1 + 10000000) {
+		pr_err("cdx: MANA ERR: on cpu%d, rdmsr: t1=%lld, t2=%lld, delta=%lld\n",
+		  raw_smp_processor_id(), t1, t2, t2-t1);
+		WARN_ONCE(1, "cdx: mana_gd_send_request: delta=%lld\n", t2-t1);
+	}
+	return ret;
 }
 EXPORT_SYMBOL_NS(mana_gd_send_request, NET_MANA);
 
@@ -1819,7 +1831,7 @@ static int mana_gd_setup(struct pci_dev *pdev)
 	if (err) {
 		dev_err(gc->dev, "Failed to setup IRQs for HWC creation: %d\n",
 			err);
-		return err;
+		goto free_workqueue;
 	}
 
 	err = mana_hwc_create_channel(gc);
@@ -1881,22 +1893,27 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	int bar = 0;
 	int err;
 
+	trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
+
 	/* Each port has 2 CQs, each CQ has at most 1 EQE at a time */
 	BUILD_BUG_ON(2 * MAX_PORTS_IN_MANA_DEV * GDMA_EQE_SIZE > EQ_SIZE);
 
 	err = pci_enable_device(pdev);
+	trace_printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 	if (err) {
 		dev_err(&pdev->dev, "Failed to enable pci device (err=%d)\n", err);
 		return -ENXIO;
 	}
 
 	pci_set_master(pdev);
+	trace_printk("cdx: %s: 3: line %d\n", __func__, __LINE__);
 
 	err = pci_request_regions(pdev, "mana");
 	if (err)
 		goto disable_dev;
 
 	err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	trace_printk("cdx: %s: 4: line %d\n", __func__, __LINE__);
 	if (err) {
 		dev_err(&pdev->dev, "DMA set mask failed: %d\n", err);
 		goto release_region;
@@ -1913,6 +1930,7 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (!gc)
 		goto release_region;
 
+	trace_printk("cdx: %s: 5: line %d\n", __func__, __LINE__);
 	mutex_init(&gc->eq_test_event_mutex);
 	pci_set_drvdata(pdev, gc);
 	gc->bar0_pa = pci_resource_start(pdev, 0);
@@ -1927,6 +1945,7 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	gc->dev = &pdev->dev;
 	xa_init(&gc->irq_contexts);
 
+	trace_printk("cdx: %s: 6: line %d: is_pf=%d\n", __func__, __LINE__, gc->is_pf);
 	if (gc->is_pf)
 		gc->mana_pci_debugfs = debugfs_create_dir("0", mana_debugfs_root);
 	else
@@ -1934,17 +1953,21 @@ static int mana_gd_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 							  mana_debugfs_root);
 
 	err = mana_gd_setup(pdev);
+	trace_printk("cdx: %s: 7: line %d, err=%d\n", __func__, __LINE__, err);
 	if (err)
 		goto unmap_bar;
 
 	err = mana_probe(&gc->mana, false);
+	trace_printk("cdx: %s: 8: line %d, err=%d\n", __func__, __LINE__, err);
 	if (err)
 		goto cleanup_gd;
 
 	err = mana_rdma_probe(&gc->mana_ib);
+	trace_printk("cdx: %s: 9: line %d, err=%d\n", __func__, __LINE__, err);
 	if (err)
 		goto cleanup_mana;
 
+	trace_printk("cdx: %s: 10: line %d, err=%d\n", __func__, __LINE__, err);
 	return 0;
 
 cleanup_mana:
@@ -1977,8 +2000,11 @@ static void mana_gd_remove(struct pci_dev *pdev)
 {
 	struct gdma_context *gc = pci_get_drvdata(pdev);
 
+	trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	mana_rdma_remove(&gc->mana_ib);
+	trace_printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 	mana_remove(&gc->mana, false);
+	trace_printk("cdx: %s: 3: line %d\n", __func__, __LINE__);
 
 	mana_gd_cleanup(pdev);
 
@@ -1992,10 +2018,13 @@ static void mana_gd_remove(struct pci_dev *pdev)
 
 	vfree(gc);
 
+	trace_printk("cdx: %s: 4: line %d\n", __func__, __LINE__);
 	pci_release_regions(pdev);
 	pci_disable_device(pdev);
+	trace_printk("cdx: %s: 5: line %d\n", __func__, __LINE__);
 
 	dev_dbg(&pdev->dev, "mana gdma remove successful\n");
+	trace_printk("cdx: %s: 6: line %d\n", __func__, __LINE__);
 }
 
 /* The 'state' parameter is not used. */

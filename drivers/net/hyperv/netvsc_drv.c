@@ -2161,6 +2161,7 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	int ret;
 
+	trace_printk("cdx: %s: 1: line %d: vsc=%px, vf=%px\n", __func__, __LINE__, ndev, vf_netdev);
 	ret = netdev_rx_handler_register(vf_netdev,
 					 netvsc_vf_handle_frame, ndev);
 	if (ret != 0) {
@@ -2182,12 +2183,15 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 	/* If this registration is called from probe context vf_takeover
 	 * is taken care of later in probe itself.
 	 */
-	if (context == VF_REG_IN_NOTIFIER)
+	if (context == VF_REG_IN_NOTIFIER) {
 		schedule_delayed_work(&ndev_ctx->vf_takeover, VF_TAKEOVER_INT);
+		trace_printk("cdx: %s: 2: line %d: vsc=%px, vf=%px, schedlued vf_takeover in 0.1s\n", __func__, __LINE__, ndev, vf_netdev);
+	}
 
 	call_netdevice_notifiers(NETDEV_JOIN, vf_netdev);
 
 	netdev_info(vf_netdev, "joined to %s\n", ndev->name);
+	trace_printk("cdx: netvsc_vf_join: 3: VF= %px : %s joined to VSC %px : %s\n", vf_netdev, vf_netdev->name,  ndev, ndev->name);
 	return 0;
 
 upper_link_failed:
@@ -2234,16 +2238,23 @@ static void netvsc_vf_setup(struct work_struct *w)
 	struct net_device *ndev = hv_get_drvdata(ndev_ctx->device_ctx);
 	struct net_device *vf_netdev;
 
+	trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
+
 	if (!rtnl_trylock()) {
+		trace_printk("cdx: %s: 2.1: line %d\n", __func__, __LINE__);
 		schedule_delayed_work(&ndev_ctx->vf_takeover, 0);
+		trace_printk("cdx: %s: 2.2: line %d\n", __func__, __LINE__);
 		return;
 	}
 
 	vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
+	trace_printk("cdx: %s: 3: line %d: vf_netdev=%px\n", __func__, __LINE__, vf_netdev);
 	if (vf_netdev)
 		__netvsc_vf_setup(ndev, vf_netdev);
 
+	trace_printk("cdx: %s: 4: line %d: vf_netdev=%px\n", __func__, __LINE__, vf_netdev);
 	rtnl_unlock();
+	trace_printk("cdx: %s: 5: line %d: vf_netdev=%px\n", __func__, __LINE__, vf_netdev);
 }
 
 /* Find netvsc by VF serial number.
@@ -2457,7 +2468,10 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
+
+	trace_printk("cdx: %s: line %d: cancelling vf_takeover...\n", __func__, __LINE__);
 	cancel_delayed_work_sync(&net_device_ctx->vf_takeover);
+	trace_printk("cdx: %s: line %d: cancelling vf_takeover... Done.\n", __func__, __LINE__);
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 
@@ -2471,6 +2485,7 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 
 	ndev->needed_headroom = RNDIS_AND_PPI_SIZE;
 
+	trace_printk("cdx: %s: line %d: Done.\n", __func__, __LINE__);
 	return NOTIFY_OK;
 }
 

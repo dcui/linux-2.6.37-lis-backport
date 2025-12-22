@@ -70,7 +70,9 @@ static int mana_open(struct net_device *ndev)
 {
 	struct mana_port_context *apc = netdev_priv(ndev);
 	int err;
+	trace_printk("cdx: %s: 1: line %d, ndev=%px\n", __func__, __LINE__, ndev);
 	err = mana_alloc_queues(ndev);
+	trace_printk("cdx: %s: 2: line %d, ndev=%px\n", __func__, __LINE__, ndev);
 
 	if (err) {
 		netdev_err(ndev, "%s failed to allocate queues: %d\n", __func__, err);
@@ -85,6 +87,7 @@ static int mana_open(struct net_device *ndev)
 	netif_carrier_on(ndev);
 	netif_tx_wake_all_queues(ndev);
 	netdev_dbg(ndev, "%s successful\n", __func__);
+	trace_printk("cdx: %s: 3: line %d, ndev=%px\n", __func__, __LINE__, ndev);
 	return 0;
 }
 
@@ -861,8 +864,10 @@ static int mana_pf_register_hw_vport(struct mana_port_context *apc)
 	req.is_pf_default_vport = 1;
 	req.allow_all_ether_types = 1;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		netdev_err(apc->ndev, "Failed to register hw vPort: %d\n", err);
 		return err;
@@ -890,8 +895,10 @@ static void mana_pf_deregister_hw_vport(struct mana_port_context *apc)
 			     sizeof(req), sizeof(resp));
 	req.hw_vport_handle = apc->port_handle;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		if (mana_en_need_log(apc, err))
 			netdev_err(apc->ndev, "Failed to unregister hw vPort: %d\n",
@@ -919,8 +926,10 @@ static int mana_pf_register_filter(struct mana_port_context *apc)
 	req.vport = apc->port_handle;
 	memcpy(req.mac_addr, apc->mac_addr, ETH_ALEN);
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		netdev_err(apc->ndev, "Failed to register filter: %d\n", err);
 		return err;
@@ -948,8 +957,10 @@ static void mana_pf_deregister_filter(struct mana_port_context *apc)
 			     sizeof(req), sizeof(resp));
 	req.filter_handle = apc->pf_filter_handle;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		if (mana_en_need_log(apc, err))
 			netdev_err(apc->ndev, "Failed to unregister filter: %d\n",
@@ -985,7 +996,9 @@ static int mana_query_device_cfg(struct mana_context *ac, u32 proto_major_ver,
 	req.proto_minor_ver = proto_minor_ver;
 	req.proto_micro_ver = proto_micro_ver;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, ac);
 	err = mana_send_request(ac, &req, sizeof(req), &resp, sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, ac);
 	if (err) {
 		dev_err(dev, "Failed to query config: %d", err);
 		return err;
@@ -1030,8 +1043,10 @@ static int mana_query_vport_cfg(struct mana_port_context *apc, u32 vport_index,
 
 	req.vport_index = vport_index;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err)
 		return err;
 
@@ -1110,8 +1125,10 @@ int mana_cfg_vport(struct mana_port_context *apc, u32 protection_dom_id,
 	req.pdid = protection_dom_id;
 	req.doorbell_pageid = doorbell_pg_id;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		netdev_err(apc->ndev, "Failed to configure vPort: %d\n", err);
 		goto out;
@@ -1183,8 +1200,10 @@ static int mana_cfg_vport_steering(struct mana_port_context *apc,
 		       req->num_indir_entries * sizeof(mana_handle_t));
 	}
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, req, req_buf_size, &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	if (err) {
 		if (mana_en_need_log(apc, err))
 			netdev_err(ndev, "Failed to configure vPort RX: %d\n", err);
@@ -1234,8 +1253,10 @@ int mana_create_wq_obj(struct mana_port_context *apc,
 	req.cq_moderation_ctx_id = cq_spec->modr_ctx_id;
 	req.cq_parent_qid = cq_spec->attached_eq;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	if (err) {
 		netdev_err(ndev, "Failed to create WQ object: %d\n", err);
 		goto out;
@@ -1280,8 +1301,10 @@ void mana_destroy_wq_obj(struct mana_port_context *apc, u32 wq_type,
 	req.wq_type = wq_type;
 	req.wq_obj_handle = wq_obj;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		if (mana_en_need_log(apc, err))
 			netdev_err(ndev, "Failed to destroy WQ object: %d\n", err);
@@ -1383,8 +1406,10 @@ static int mana_fence_rq(struct mana_port_context *apc, struct mana_rxq *rxq)
 			     sizeof(req), sizeof(resp));
 	req.wq_obj_handle =  rxq->rxobj;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		netdev_err(apc->ndev, "Failed to fence RQ %u: %d\n",
 			   rxq->rxq_idx, err);
@@ -2637,8 +2662,10 @@ void mana_query_gf_stats(struct mana_port_context *apc)
 			STATISTICS_FLAGS_HC_TX_BCAST_BYTES |
 			STATISTICS_FLAGS_TX_ERRORS_GDMA_ERROR;
 
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err) {
 		netdev_err(ndev, "Failed to query GF stats: %d\n", err);
 		return;
@@ -2694,8 +2721,10 @@ void mana_query_phy_stats(struct mana_port_context *apc)
 
 	mana_gd_init_req_hdr(&req.hdr, MANA_QUERY_PHY_STAT,
 			     sizeof(req), sizeof(resp));
+	trace_printk("cdx: %s: a: line %d: ac=%px\n", __func__, __LINE__, apc->ac);
 	err = mana_send_request(apc->ac, &req, sizeof(req), &resp,
 				sizeof(resp));
+	trace_printk("cdx: %s: b: line %d: err=%d, ac=%px\n", __func__, __LINE__, err, apc->ac);
 	if (err)
 		return;
 
@@ -2815,13 +2844,16 @@ int mana_alloc_queues(struct net_device *ndev)
 	struct gdma_dev *gd = apc->ac->gdma_dev;
 	int err;
 
+	trace_printk("cdx: %s: 1: line %d, ndev=%px\n", __func__, __LINE__, ndev);
 	err = mana_create_vport(apc, ndev);
+	trace_printk("cdx: %s: 2: line %d, ndev=%px, err=%d\n", __func__, __LINE__, ndev, err);
 	if (err) {
 		netdev_err(ndev, "Failed to create vPort %u : %d\n", apc->port_idx, err);
 		return err;
 	}
 
 	err = netif_set_real_num_tx_queues(ndev, apc->num_queues);
+	trace_printk("cdx: %s: 3: line %d, ndev=%px, err=%d\n", __func__, __LINE__, ndev, err);
 	if (err) {
 		netdev_err(ndev,
 			   "netif_set_real_num_tx_queues () failed for ndev with num_queues %u : %d\n",
@@ -2830,6 +2862,7 @@ int mana_alloc_queues(struct net_device *ndev)
 	}
 
 	err = mana_add_rx_queues(apc, ndev);
+	trace_printk("cdx: %s: 4: line %d, ndev=%px, err=%d\n", __func__, __LINE__, ndev, err);
 	if (err)
 		goto destroy_vport;
 
@@ -2845,7 +2878,9 @@ int mana_alloc_queues(struct net_device *ndev)
 
 	mana_rss_table_init(apc);
 
+	trace_printk("cdx: %s: 5: line %d, ndev=%px, err=%d\n", __func__, __LINE__, ndev, err);
 	err = mana_config_rss(apc, TRI_STATE_TRUE, true, true);
+	trace_printk("cdx: %s: 6: line %d, ndev=%px, err=%d\n", __func__, __LINE__, ndev, err);
 	if (err) {
 		netdev_err(ndev, "Failed to configure RSS table: %d\n", err);
 		goto destroy_vport;
@@ -2859,6 +2894,7 @@ int mana_alloc_queues(struct net_device *ndev)
 
 	mana_chn_setxdp(apc, mana_xdp_get(apc));
 
+	trace_printk("cdx: %s: 7: line %d, ndev=%px, err=%d\n", __func__, __LINE__, ndev, err);
 	return 0;
 
 destroy_vport:
@@ -3234,6 +3270,7 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 		 MANA_MAJOR_VERSION, MANA_MINOR_VERSION, MANA_MICRO_VERSION);
 
 	err = mana_gd_register_device(gd);
+	trace_printk("cdx: %s: 1: line %d, err=%d\n", __func__, __LINE__, err);
 	if (err)
 		return err;
 
@@ -3247,6 +3284,7 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 	}
 
 	err = mana_create_eq(ac);
+	trace_printk("cdx: %s: 2: line %d, err=%d\n", __func__, __LINE__, err);
 	if (err) {
 		dev_err(dev, "Failed to create EQs: %d\n", err);
 		goto out;
@@ -3254,6 +3292,7 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 
 	err = mana_query_device_cfg(ac, MANA_MAJOR_VERSION, MANA_MINOR_VERSION,
 				    MANA_MICRO_VERSION, &num_ports, &bm_hostmode);
+	trace_printk("cdx: %s: 3: line %d, err=%d\n", __func__, __LINE__, err);
 	if (err)
 		goto out;
 
@@ -3278,7 +3317,9 @@ int mana_probe(struct gdma_dev *gd, bool resuming)
 
 	if (!resuming) {
 		for (i = 0; i < ac->num_ports; i++) {
+			trace_printk("cdx: %s: 4.1: line %d, err=%d\n", __func__, __LINE__, err);
 			err = mana_probe_port(ac, i, &ac->ports[i]);
+			trace_printk("cdx: %s: 4.2: line %d, err=%d\n", __func__, __LINE__, err);
 			/* we log the port for which the probe failed and stop
 			 * probes for subsequent ports.
 			 * Note that we keep running ports, for which the probes
@@ -3317,6 +3358,7 @@ out:
 		dev_dbg(dev, "%s succeeded\n", __func__);
 	}
 
+	trace_printk("cdx: %s: 5: line %d, err=%d\n", __func__, __LINE__, err);
 	return err;
 }
 

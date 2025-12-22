@@ -279,6 +279,9 @@ void cdx_sysrq_handle_showallcpus(void)
 	pr_err("cdx: calling sysrq_handle_showallcpus with l ====>\n");
 	sysrq_handle_showallcpus('l');
 	pr_err("cdx: calling sysrq_handle_showallcpus with l: done: <=======================\n");
+	pr_err("cdx: calling sysrq_handle_showallcpus with w ====>\n");
+	show_state_filter(TASK_UNINTERRUPTIBLE);
+	pr_err("cdx: calling sysrq_handle_showallcpus with w: done: <=======================\n");
 }
 
 static const struct sysrq_key_op sysrq_showallcpus_op = {
@@ -337,6 +340,11 @@ static const struct sysrq_key_op sysrq_showstate_blocked_op = {
 static void sysrq_ftrace_dump(u8 key)
 {
 	ftrace_dump(DUMP_ALL);
+}
+void cdx_sysrq_ftrace_dump(void);
+void cdx_sysrq_ftrace_dump(void)
+{
+	sysrq_ftrace_dump('z');
 }
 static const struct sysrq_key_op sysrq_ftrace_dump_op = {
 	.handler	= sysrq_ftrace_dump,

@@ -39,7 +39,7 @@ unsigned long __read_mostly watchdog_enabled;
 int __read_mostly watchdog_user_enabled = 1;
 static int __read_mostly watchdog_hardlockup_user_enabled = WATCHDOG_HARDLOCKUP_DEFAULT;
 static int __read_mostly watchdog_softlockup_user_enabled = 1;
-int __read_mostly watchdog_thresh = 10;
+int __read_mostly watchdog_thresh = 5;
 static int __read_mostly watchdog_hardlockup_available;
 
 struct cpumask watchdog_cpumask __read_mostly;
@@ -283,7 +283,7 @@ static void lockup_detector_update_enable(void)
 #define SOFTLOCKUP_DELAY_REPORT	ULONG_MAX
 
 #ifdef CONFIG_SMP
-int __read_mostly sysctl_softlockup_all_cpu_backtrace;
+int __read_mostly sysctl_softlockup_all_cpu_backtrace = 1;
 #endif
 
 static struct cpumask watchdog_allowed_mask __read_mostly;
@@ -468,8 +468,10 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 	int softlockup_all_cpu_backtrace = sysctl_softlockup_all_cpu_backtrace;
 	unsigned long flags;
 
-	if (!watchdog_enabled)
+	if (!watchdog_enabled) {
+		WARN_ONCE(1, "cdx: watchdog_timer_fn: watchdog_enabled=0 !!!\n");
 		return HRTIMER_NORESTART;
+	}
 
 	watchdog_hardlockup_kick();
 
@@ -521,6 +523,12 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 	touch_ts = __this_cpu_read(watchdog_touch_ts);
 	duration = is_softlockup(touch_ts, period_ts, now);
 	if (unlikely(duration)) {
+		void cdx_sysrq_ftrace_dump(void);
+		extern volatile bool cdx_ignore_loglevel;
+
+		cdx_ignore_loglevel = true;
+		trace_printk("cdx: setting ignore_loglevel to 1\n");
+		pr_emerg("cdx: setting ignore_loglevel to 1\n");
 		/*
 		 * Prevent multiple soft-lockup reports if one cpu is already
 		 * engaged in dumping all cpu back traces.
@@ -534,7 +542,7 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 		update_report_ts();
 
 		printk_cpu_sync_get_irqsave(flags);
-		pr_emerg("BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
+		pr_emerg("cdx: BUG: soft lockup - CPU#%d stuck for %us! [%s:%d]\n",
 			smp_processor_id(), duration,
 			current->comm, task_pid_nr(current));
 		print_modules();
@@ -547,6 +555,17 @@ static enum hrtimer_restart watchdog_timer_fn(struct hrtimer *hrtimer)
 
 		if (softlockup_all_cpu_backtrace) {
 			trigger_allbutcpu_cpu_backtrace(smp_processor_id());
+
+
+			pr_err("cdx: calling sysrq_handle_showallcpus with w ====>\n");
+			show_state_filter(TASK_UNINTERRUPTIBLE);
+			pr_err("cdx: calling sysrq_handle_showallcpus with w: done: <=======================\n");
+
+			pr_err("cdx: calling cdx_sysrq_ftrace_dump(): ====>\n");
+			cdx_sysrq_ftrace_dump();
+			pr_err("cdx: calling cdx_sysrq_ftrace_dump(): done: <=======================\n");
+			tracing_on();
+
 			if (!softlockup_panic)
 				clear_bit_unlock(0, &soft_lockup_nmi_warn);
 		}

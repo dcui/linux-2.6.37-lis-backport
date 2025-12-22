@@ -2836,7 +2836,9 @@ static void hv_eject_device_work(struct work_struct *work)
 	hpdev = container_of(work, struct hv_pci_dev, wrk);
 	hbus = hpdev->hbus;
 
+	trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	mutex_lock(&hbus->state_lock);
+	trace_printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 
 	/*
 	 * Ejection can come before or after the PCI bus has been set up, so
@@ -2846,10 +2848,14 @@ static void hv_eject_device_work(struct work_struct *work)
 	 */
 	wslot = wslot_to_devfn(hpdev->desc.win_slot.slot);
 	pdev = pci_get_domain_bus_and_slot(hbus->bridge->domain_nr, 0, wslot);
+	trace_printk("cdx: %s: 3: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 	if (pdev) {
 		pci_lock_rescan_remove();
+		trace_printk("cdx: %s: 4: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 		pci_stop_and_remove_bus_device(pdev);
+		trace_printk("cdx: %s: 5: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 		pci_dev_put(pdev);
+		trace_printk("cdx: %s: 6: line %d, pdev=%px\n", __func__, __LINE__, pdev);
 		pci_unlock_rescan_remove();
 	}
 
@@ -2860,6 +2866,7 @@ static void hv_eject_device_work(struct work_struct *work)
 	if (hpdev->pci_slot)
 		pci_destroy_slot(hpdev->pci_slot);
 
+	trace_printk("cdx: %s: 7: line %d\n", __func__, __LINE__);
 	memset(&ctxt, 0, sizeof(ctxt));
 	ejct_pkt = (struct pci_eject_response *)&ctxt.pkt.message;
 	ejct_pkt->message_type.type = PCI_EJECTION_COMPLETE;
@@ -2876,6 +2883,7 @@ static void hv_eject_device_work(struct work_struct *work)
 	/* hpdev has been freed. Do not use it any more. */
 
 	mutex_unlock(&hbus->state_lock);
+	trace_printk("cdx: %s: 8: line %d\n", __func__, __LINE__);
 }
 
 /**
@@ -3022,6 +3030,8 @@ static void hv_pci_onchannelcallback(void *context)
 				break;
 
 			case PCI_EJECT:
+				trace_printk("cdx: %s: line %d: got PCI_EJECT on chan=%px\n", __func__, __LINE__, chan);
+				printk("cdx: %s: line %d: got PCI_EJECT on chan=%px\n", __func__, __LINE__, chan);
 
 				dev_message = (struct pci_dev_incoming *)buffer;
 				if (bytes_recvd < sizeof(*dev_message)) {
@@ -3890,11 +3900,15 @@ static void hv_pci_remove(struct hv_device *hdev)
 	struct hv_pcibus_device *hbus;
 
 	hbus = hv_get_drvdata(hdev);
+	trace_printk("cdx: %s: 1: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 	if (hbus->state == hv_pcibus_installed) {
 		tasklet_disable(&hdev->channel->callback_event);
 		hbus->state = hv_pcibus_removing;
+		trace_printk("cdx: %s: 2.1: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		tasklet_enable(&hdev->channel->callback_event);
+		trace_printk("cdx: %s: 2.2: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		destroy_workqueue(hbus->wq);
+		trace_printk("cdx: %s: 2.3: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		hbus->wq = NULL;
 		/*
 		 * At this point, no work is running or can be scheduled
@@ -3904,15 +3918,23 @@ static void hv_pci_remove(struct hv_device *hdev)
 
 		/* Remove the bus from PCI's point of view. */
 		pci_lock_rescan_remove();
+		trace_printk("cdx: %s: 2.4: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		pci_stop_root_bus(hbus->bridge->bus);
+		trace_printk("cdx: %s: 2.5: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		hv_pci_remove_slots(hbus);
+		trace_printk("cdx: %s: 2.6: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		pci_remove_root_bus(hbus->bridge->bus);
+		trace_printk("cdx: %s: 2.7: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 		pci_unlock_rescan_remove();
+		trace_printk("cdx: %s: 2.8: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 	}
 
+	trace_printk("cdx: %s: 3: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 	hv_pci_bus_exit(hdev, false);
 
+	trace_printk("cdx: %s: 4: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 	vmbus_close(hdev->channel);
+	trace_printk("cdx: %s: 5: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 
 	iounmap(hbus->cfg_addr);
 	hv_free_config_window(hbus);
@@ -3922,6 +3944,7 @@ static void hv_pci_remove(struct hv_device *hdev)
 
 	hv_put_dom_num(hbus->bridge->domain_nr);
 
+	trace_printk("cdx: %s: 6: line %d: state=%d\n", __func__, __LINE__, hbus->state);
 	kfree(hbus);
 }
 

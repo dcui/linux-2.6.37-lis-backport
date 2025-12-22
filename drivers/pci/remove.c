@@ -15,17 +15,26 @@ static void pci_free_resources(struct pci_dev *dev)
 
 static void pci_stop_dev(struct pci_dev *dev)
 {
+	trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	pci_pme_active(dev, false);
+	trace_printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 
 	if (pci_dev_is_added(dev)) {
 
+		trace_printk("cdx: %s: 3.a: line %d\n", __func__, __LINE__);
 		device_release_driver(&dev->dev);
+		trace_printk("cdx: %s: 3.b: line %d\n", __func__, __LINE__);
 		pci_proc_detach_device(dev);
+		trace_printk("cdx: %s: 3.c: line %d\n", __func__, __LINE__);
 		pci_remove_sysfs_dev_files(dev);
+		trace_printk("cdx: %s: 3.d: line %d\n", __func__, __LINE__);
 		of_pci_remove_node(dev);
+		trace_printk("cdx: %s: 3.e: line %d\n", __func__, __LINE__);
 
 		pci_dev_assign_added(dev, false);
+		trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	}
+	trace_printk("cdx: %s: 4: line %d\n", __func__, __LINE__);
 }
 
 static void pci_destroy_dev(struct pci_dev *dev)
@@ -75,13 +84,16 @@ static void pci_stop_bus_device(struct pci_dev *dev)
 	 * iterator.  Therefore, iterate in reverse so we remove the VFs
 	 * first, then the PF.
 	 */
+	trace_printk("cdx: %s: 1: line %d, bus=%px\n", __func__, __LINE__, bus);
 	if (bus) {
 		list_for_each_entry_safe_reverse(child, tmp,
 						 &bus->devices, bus_list)
 			pci_stop_bus_device(child);
 	}
 
+	trace_printk("cdx: %s: 2: line %d, bus=%px\n", __func__, __LINE__, bus);
 	pci_stop_dev(dev);
+	trace_printk("cdx: %s: 3: line %d, bus=%px\n", __func__, __LINE__, bus);
 }
 
 static void pci_remove_bus_device(struct pci_dev *dev)
@@ -115,8 +127,11 @@ static void pci_remove_bus_device(struct pci_dev *dev)
  */
 void pci_stop_and_remove_bus_device(struct pci_dev *dev)
 {
+	trace_printk("cdx: %s: 1: line %d\n", __func__, __LINE__);
 	pci_stop_bus_device(dev);
+	trace_printk("cdx: %s: 2: line %d\n", __func__, __LINE__);
 	pci_remove_bus_device(dev);
+	trace_printk("cdx: %s: 3: line %d\n", __func__, __LINE__);
 }
 EXPORT_SYMBOL(pci_stop_and_remove_bus_device);
 

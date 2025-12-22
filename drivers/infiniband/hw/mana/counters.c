@@ -79,8 +79,10 @@ static int mana_ib_get_hw_device_stats(struct ib_device *ibdev, struct rdma_hw_s
 	req.hdr.dev_id = mdev->gdma_dev->dev_id;
 	req.adapter = mdev->adapter_handle;
 
+	trace_printk("cdx: %s: a: line %d, ac=%px\n", __func__, __LINE__, mdev_to_gc(mdev));
 	err = mana_gd_send_request(mdev_to_gc(mdev), sizeof(req), &req,
 				   sizeof(resp), &resp);
+	trace_printk("cdx: %s: b: line %d, ac=%px, err=%d\n", __func__, __LINE__, mdev_to_gc(mdev), err);
 	if (err) {
 		ibdev_err(&mdev->ib_dev, "Failed to query device counters err %d",
 			  err);
@@ -112,8 +114,10 @@ static int mana_ib_get_hw_port_stats(struct ib_device *ibdev, struct rdma_hw_sta
 	req.hdr.dev_id = mdev->gdma_dev->dev_id;
 	req.adapter = mdev->adapter_handle;
 
+	trace_printk("cdx: %s: a: line %d, ac=%px\n", __func__, __LINE__, mdev_to_gc(mdev));
 	err = mana_gd_send_request(mdev_to_gc(mdev), sizeof(req), &req,
 				   sizeof(resp), &resp);
+	trace_printk("cdx: %s: b: line %d, ac=%px, err=%d\n", __func__, __LINE__, mdev_to_gc(mdev), err);
 	if (err) {
 		ibdev_err(&mdev->ib_dev, "Failed to query vf counters err %d",
 			  err);

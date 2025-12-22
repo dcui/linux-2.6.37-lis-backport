@@ -1149,6 +1149,8 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	bool clean_up_chan_for_suspend;
 
 	rescind = (struct vmbus_channel_rescind_offer *)hdr;
+	trace_printk("cdx: %s: line %d: relid=%d\n", __func__, __LINE__, rescind->child_relid);
+	printk("cdx: %s: line %d: relid=%d\n", __func__, __LINE__, rescind->child_relid);
 
 	trace_vmbus_onoffer_rescind(rescind);
 

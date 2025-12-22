@@ -1257,11 +1257,13 @@ err_free_log_buf:
 	memblock_free(new_log_buf, new_log_buf_len);
 }
 
-bool ignore_loglevel;
+extern volatile bool cdx_ignore_loglevel;
+volatile bool cdx_ignore_loglevel;
 
+#if 0
 static int __init ignore_loglevel_setup(char *str)
 {
-	ignore_loglevel = true;
+	cdx_ignore_loglevel = true;
 	pr_info("debug: ignoring loglevel setting.\n");
 
 	return 0;
@@ -1271,10 +1273,11 @@ early_param("ignore_loglevel", ignore_loglevel_setup);
 module_param(ignore_loglevel, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(ignore_loglevel,
 		 "ignore loglevel setting (prints all kernel messages to the console)");
+#endif
 
 static bool suppress_message_printing(int level)
 {
-	return (level >= console_loglevel && !ignore_loglevel);
+	return (level >= console_loglevel && !cdx_ignore_loglevel);
 }
 
 #ifdef CONFIG_BOOT_PRINTK_DELAY
