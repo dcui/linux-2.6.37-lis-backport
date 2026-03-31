@@ -445,13 +445,11 @@ static u64 notrace read_hv_clock_tsc_cs(struct clocksource *arg)
 	return read_hv_clock_tsc();
 }
 
-static bool hv_sched_clock_force_monotonic __read_mostly;
+static bool hv_sched_clock_force_monotonic __read_mostly = true;
 static DEFINE_PER_CPU(u64, hv_sched_clock_last);
 
 static int __init early_hv_sched_clock_force_monotonic(char *arg)
 {
-	int ret;
-
 	/*
 	 * Parse the early kernel parameter controlling whether to force
 	 * the Hyper-V sched_clock path to be strictly monotonic.
@@ -459,15 +457,7 @@ static int __init early_hv_sched_clock_force_monotonic(char *arg)
 	if (!arg)
 		return -EINVAL;
 
-	ret = kstrtobool(arg, &hv_sched_clock_force_monotonic);
-	if (ret) {
-		pr_warn("Hyper-V sched_clock: invalid force_monotonic value '%s'\n", arg);
-		return ret;
-	}
-
-	pr_info("cdx: Hyper-V sched_clock force_monotonic=%d\n", hv_sched_clock_force_monotonic);
-
-	return 0;
+	return kstrtobool(arg, &hv_sched_clock_force_monotonic);
 }
 early_param("hv_sched_clock_force_monotonic", early_hv_sched_clock_force_monotonic);
 
