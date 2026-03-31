@@ -447,8 +447,32 @@ static u64 notrace read_hv_clock_tsc_cs(struct clocksource *arg)
 
 static u64 noinstr read_hv_sched_clock_tsc(void)
 {
-	return (read_hv_clock_tsc() - hv_sched_clock_offset) *
-		(NSEC_PER_SEC / HV_CLOCK_HZ);
+	u64 now = read_hv_clock_tsc();
+	u64 delta;
+
+	if (now <= hv_sched_clock_offset) {
+		int cpu = raw_smp_processor_id();
+		pr_err_once("cdx: cpu%d: now1 is too small: now=%lld, off=%lld, delta=%lld\n",
+			    cpu, now, hv_sched_clock_offset, now - hv_sched_clock_offset);
+
+		now = read_hv_clock_msr();
+		if (now <= hv_sched_clock_offset) {
+			pr_err_once("cdx: cpu%d: now2 is too small: now=%lld, delta=%lld\n",
+				    cpu, now, now - hv_sched_clock_offset);
+
+			/*
+			 * We really shouldn't reach here because the spec says
+			 * the MSR is "strictly monotonically increasing". In
+			 * case we're here, let the function return a small
+			 * positive value 1 rather than a spuriously huge u64.
+			 */
+			now = hv_sched_clock_offset + 1;
+		}
+	}
+
+	delta = now - hv_sched_clock_offset;
+
+	return delta * (NSEC_PER_SEC / HV_CLOCK_HZ);
 }
 
 static void suspend_hv_clock_tsc(struct clocksource *arg)
@@ -601,7 +625,8 @@ static void __init hv_init_tsc_clocksource(void)
 	 * frequencies is handled correctly.
 	 */
 	if (!(ms_hyperv.features & HV_ACCESS_TSC_INVARIANT)) {
-		hv_sched_clock_offset = hv_read_reference_counter();
+		/* read_hv_clock_tsc() may be unreliable on AMDv4 CPUs... */
+		hv_sched_clock_offset = read_hv_clock_msr();
 		hv_setup_sched_clock(read_hv_sched_clock_tsc);
 	}
 }
