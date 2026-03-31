@@ -433,7 +433,7 @@ static __always_inline u64 read_hv_clock_tsc(void)
 	 * to the MSR in case the TSC page indicates unavailability.
 	 */
 	if (!hv_read_tsc_page_tsc(tsc_page, &cur_tsc, &time)) {
-		WARN_ONCE(((s64)cur_tsc) < 0, "TSC is too big: %llx\n", cur_tsc);
+		WARN_ONCE(((s64)cur_tsc) < 0, "cdx: TSC is too big: %llx\n", cur_tsc);
 		time = read_hv_clock_msr();
 	}
 
@@ -445,10 +445,82 @@ static u64 notrace read_hv_clock_tsc_cs(struct clocksource *arg)
 	return read_hv_clock_tsc();
 }
 
+static bool hv_sched_clock_force_monotonic __read_mostly;
+static DEFINE_PER_CPU(u64, hv_sched_clock_last);
+
+static int __init early_hv_sched_clock_force_monotonic(char *arg)
+{
+	int ret;
+
+	/*
+	 * Parse the early kernel parameter controlling whether to force
+	 * the Hyper-V sched_clock path to be strictly monotonic.
+	 */
+	if (!arg)
+		return -EINVAL;
+
+	ret = kstrtobool(arg, &hv_sched_clock_force_monotonic);
+	if (ret) {
+		pr_warn("Hyper-V sched_clock: invalid force_monotonic value '%s'\n", arg);
+		return ret;
+	}
+
+	pr_info("cdx: Hyper-V sched_clock force_monotonic=%d\n", hv_sched_clock_force_monotonic);
+
+	return 0;
+}
+early_param("hv_sched_clock_force_monotonic", early_hv_sched_clock_force_monotonic);
+
+static u64 noinstr read_hv_sched_clock_tsc_old(void)
+{
+	u64 now = read_hv_clock_tsc();
+	u64 ns = now - hv_sched_clock_offset;
+
+	if (now <= hv_sched_clock_offset)
+		pr_err_once("cdx: now is too small on cpu%d: now=%lld, off=%lld, ns=%lld\n",
+			raw_smp_processor_id(), now, hv_sched_clock_offset, ns);
+
+	return ns * (NSEC_PER_SEC / HV_CLOCK_HZ);
+}
+
+static u64 noinstr read_hv_sched_clock_tsc_monotonic(void)
+{
+	u64 now, delta, ns, last;
+
+	now = read_hv_clock_tsc();
+
+	/*
+	 * Avoid unsigned underflow when the current Hyper-V clock value
+	 * is not greater than hv_sched_clock_offset. In that case, start
+	 * from a small positive value and then enforce strict per-CPU
+	 * monotonicity below.
+	 */
+	if (now <= hv_sched_clock_offset)
+		ns = 1;
+	else {
+		delta = now - hv_sched_clock_offset;
+		ns = delta * (NSEC_PER_SEC / HV_CLOCK_HZ);
+	}
+
+	/*
+	 * Keep sched_clock() strictly increasing on each CPU even if the
+	 * underlying Hyper-V clock source temporarily stalls or appears
+	 * to go backwards relative to hv_sched_clock_offset.
+	 */
+	last = this_cpu_read(hv_sched_clock_last);
+	if (ns <= last)
+		ns = last + 1;
+
+	this_cpu_write(hv_sched_clock_last, ns);
+	return ns;
+}
+
 static u64 noinstr read_hv_sched_clock_tsc(void)
 {
-	return (read_hv_clock_tsc() - hv_sched_clock_offset) *
-		(NSEC_PER_SEC / HV_CLOCK_HZ);
+	if (hv_sched_clock_force_monotonic)
+		return read_hv_sched_clock_tsc_monotonic();
+
+	return read_hv_sched_clock_tsc_old();
 }
 
 static void suspend_hv_clock_tsc(struct clocksource *arg)
@@ -622,6 +694,9 @@ void __init hv_init_clocksource(void)
 
 	if (ms_hyperv.features & HV_MSR_TIME_REF_COUNT_AVAILABLE)
 		clocksource_register_hz(&hyperv_cs_msr, NSEC_PER_SEC/100);
+
+	pr_info("cdx: hv_init_clocksource: Hyper-V sched_clock force_monotonic=%d\n",
+		hv_sched_clock_force_monotonic);
 }
 
 void __init hv_remap_tsc_clocksource(void)
