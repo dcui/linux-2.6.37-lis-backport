@@ -853,7 +853,7 @@ struct nvsp_message {
 /* Max buffer sizes allowed by a host */
 #define NETVSC_RECEIVE_BUFFER_SIZE		(1024 * 1024 * 31) /* 31MB */
 #define NETVSC_RECEIVE_BUFFER_SIZE_LEGACY	(1024 * 1024 * 15) /* 15MB */
-#define NETVSC_RECEIVE_BUFFER_DEFAULT		(1024 * 1024 * 16)
+#define NETVSC_RECEIVE_BUFFER_DEFAULT		(1024 * 1024 * 4)
 
 #define NETVSC_SEND_BUFFER_SIZE			(1024 * 1024 * 15)  /* 15MB */
 #define NETVSC_SEND_BUFFER_DEFAULT		(1024 * 1024)
