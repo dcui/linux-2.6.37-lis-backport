@@ -305,6 +305,12 @@ struct mana_recv_buf_oob {
 
 	void *buf_va;
 	bool from_pool; /* allocated from a page pool */
+	/* Valid only for page_pool fragment RX buffers. */
+	struct page *page;
+	/* Offset from page_pool_get_dma_addr(page) to the DMA range that
+	 * needs to be synced for CPU access.
+	 */
+	u32 dma_sync_offset;
 
 	/* SGL of the buffer going to be sent as part of the work request. */
 	u32 num_sge;
