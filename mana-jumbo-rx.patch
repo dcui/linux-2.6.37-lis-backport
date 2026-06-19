@@ -1,0 +1,125 @@
+From 3d2d1b6b91a0f2d8e6b8c1a4c7d9e5f0a1b2c3d4 Mon Sep 17 00:00:00 2001
+From: Dexuan Cui <decui@microsoft.com>
+Date: Fri, 19 Jun 2026 12:00:00 +0000
+Subject: [PATCH] net: mana: Avoid per-packet DMA map/unmap for jumbo RX
+ buffers
+
+The swiotlb=force fix made the multi-fragment RX path keep page-pool
+buffers DMA mapped and explicitly sync the received bytes for CPU access
+before handing packets up the stack.
+
+Jumbo RX still uses frag_count == 1, and that path continues to allocate
+pages from page pool but DMA-map each buffer when posting it and
+DMA-unmap it again when recycling it. With swiotlb=force, the per-packet
+DMA map/unmap operations are expensive and severely degrade RX
+performance.
+
+Use page-pool-managed DMA mappings for the single-buffer RX path too.
+Record the page-pool page and DMA sync offset for frag_count == 1
+buffers, sync the received bytes for CPU access on RX completion, and
+release the buffer back to page pool without per-packet
+DMA unmapping.
+
+Keep the pre-allocated RX buffer path used for MTU changes and queue
+reset fallback on explicit dma_map_single()/dma_unmap_single().
+
+Fixes: 4952ffa74e97 ("net: mana: Sync page pool RX frags for CPU")
+Signed-off-by: Dexuan Cui <decui@microsoft.com>
+---
+ drivers/net/ethernet/microsoft/mana/mana_en.c | 39 +++++++++++++++-----------
+ 1 file changed, 23 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/net/ethernet/microsoft/mana/mana_en.c b/drivers/net/ethernet/microsoft/mana/mana_en.c
+index d8906169666d838aa06f6983ad9d50aa2b7f67e7..73b61b22b7fd0b3d22f72c2fbd6c8f2c5f3f7e8a 100644
+--- a/drivers/net/ethernet/microsoft/mana/mana_en.c
++++ b/drivers/net/ethernet/microsoft/mana/mana_en.c
+@@ -2053,7 +2053,7 @@ static void *mana_get_rxfrag(struct mana_rxq *rxq, struct device *dev,
+ 	*dma_sync_offset = 0;
+ 
+ 	/* Don't use fragments for jumbo frames or XDP where it's 1 fragment
+-	 * per page. These buffers are mapped with dma_map_single().
++	 * per page. These buffers remain DMA mapped by the page pool.
+ 	 */
+ 	if (rxq->frag_count == 1) {
+ 		/* Reuse XDP dropped page if available */
+@@ -2069,14 +2069,11 @@ static void *mana_get_rxfrag(struct mana_rxq *rxq, struct device *dev,
+ 			va = page_to_virt(page);
+ 		}
+ 
+-		*da = dma_map_single(dev, va + rxq->headroom, rxq->datasize,
+-				     DMA_FROM_DEVICE);
+-		if (dma_mapping_error(dev, *da)) {
+-			mana_put_rx_page(rxq, page, *from_pool);
+-			return NULL;
+-		}
+-
++		*da = page_pool_get_dma_addr(page) + rxq->headroom;
++		*from_pool = true;
++		*pp_page = page;
++		*dma_sync_offset = rxq->headroom;
+ 		return va;
+ 	}
+ 
+ 	page =  page_pool_dev_alloc_frag(rxq->page_pool, &offset,
+@@ -2101,7 +2098,7 @@ static void mana_refill_rx_oob(struct device *dev, struct mana_rxq *rxq,
+ 	va = mana_get_rxfrag(rxq, dev, &da, &from_pool, &pp_page,
+ 			     &dma_sync_offset);
+ 	if (!va)
+-		return;
+-	if (!rxoob->from_pool || rxq->frag_count == 1) {
++		return;
++	if (!rxoob->from_pool) {
+ 		dma_unmap_single(dev, rxoob->sgl[0].address, rxq->datasize,
+ 				 DMA_FROM_DEVICE);
+ 	} else {
+@@ -2538,11 +2535,13 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
+ 
+ 		page = virt_to_head_page(rx_oob->buf_va);
+ 
+-		if (rxq->frag_count == 1 || !rx_oob->from_pool) {
++		if (!rx_oob->from_pool) {
+ 			dma_unmap_single(dev, rx_oob->sgl[0].address,
+ 					 rx_oob->sgl[0].size, DMA_FROM_DEVICE);
+ 			mana_put_rx_page(rxq, page, rx_oob->from_pool);
+-		} else {
++		} else if (rxq->frag_count == 1) {
++			page_pool_put_full_page(rxq->page_pool, page, false);
++		} else {
+ 			page_pool_free_va(rxq->page_pool, rx_oob->buf_va, true);
+ 		}
+ 
+@@ -2663,16 +2662,24 @@ static int mana_create_page_pool(struct mana_rxq *rxq, struct gdma_context *gc)
+ 	pprm.queue_idx = rxq->rxq_idx;
+ 	pprm.dev = gc->dev;
+ 
+-	/* Let the page pool do the dma map when page sharing with multiple
+-	 * fragments enabled for rx buffers.
++	/* Let the page pool do the DMA map for all steady-state RX buffers.
++	 *
++	 * For frag_count > 1 this is required because multiple RX buffers
++	 * share a page.
++	 *
++	 * For frag_count == 1 (jumbo MTU or XDP), using page-pool-managed
++	 * DMA mappings avoids the expensive per-packet dma_map_single() /
++	 * dma_unmap_single() cycle in the RX fast path, which is especially
++	 * costly with swiotlb=force.
++	 *
++	 * max_len must cover the full backing allocation because the
++	 * single-buffer path may use higher-order pages.
+ 	 */
+-	if (rxq->frag_count > 1) {
+-		pprm.flags =  PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
+-		pprm.max_len = PAGE_SIZE;
+-		pprm.dma_dir = DMA_FROM_DEVICE;
+-	}
++	pprm.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
++	pprm.max_len = rxq->alloc_size;
++	pprm.dma_dir = DMA_FROM_DEVICE;
+ 
+ 	rxq->page_pool = page_pool_create(&pprm);
++
+ 	if (IS_ERR(rxq->page_pool)) {
+ 		ret = PTR_ERR(rxq->page_pool);
+ 		rxq->page_pool = NULL;
+-- 
+2.43.0
