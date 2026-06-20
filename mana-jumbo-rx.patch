@@ -1,24 +1,21 @@
 From 3d2d1b6b91a0f2d8e6b8c1a4c7d9e5f0a1b2c3d4 Mon Sep 17 00:00:00 2001
 From: Dexuan Cui <decui@microsoft.com>
 Date: Fri, 19 Jun 2026 12:00:00 +0000
-Subject: [PATCH] net: mana: Avoid per-packet DMA map/unmap for jumbo RX
- buffers
+Subject: [PATCH] net: mana: Use page pool DMA mapping for jumbo RX buffers
 
-The swiotlb=force fix made the multi-fragment RX path keep page-pool
-buffers DMA mapped and explicitly sync the received bytes for CPU access
-before handing packets up the stack.
+The recent swiotlb=force fix taught the multi-fragment RX path to keep
+page-pool buffers DMA mapped and to sync the received bytes for CPU
+access explicitly before passing packets up the stack.
 
-Jumbo RX still uses frag_count == 1, and that path continues to allocate
-pages from page pool but DMA-map each buffer when posting it and
-DMA-unmap it again when recycling it. With swiotlb=force, the per-packet
-DMA map/unmap operations are expensive and severely degrade RX
-performance.
+However, the jumbo RX path still uses frag_count == 1, and it continues
+to DMA-map each RX buffer when posting it and DMA-unmap it again in the
+RX completion path. Under swiotlb=force, that per-packet DMA map/unmap
+is expensive and causes severe RX performance degradation.
 
 Use page-pool-managed DMA mappings for the single-buffer RX path too.
 Record the page-pool page and DMA sync offset for frag_count == 1
 buffers, sync the received bytes for CPU access on RX completion, and
-release the buffer back to page pool without per-packet
-DMA unmapping.
+release the buffer back to page pool without per-packet DMA unmapping.
 
 Keep the pre-allocated RX buffer path used for MTU changes and queue
 reset fallback on explicit dma_map_single()/dma_unmap_single().
@@ -26,11 +23,11 @@ reset fallback on explicit dma_map_single()/dma_unmap_single().
 Fixes: 4952ffa74e97 ("net: mana: Sync page pool RX frags for CPU")
 Signed-off-by: Dexuan Cui <decui@microsoft.com>
 ---
- drivers/net/ethernet/microsoft/mana/mana_en.c | 39 +++++++++++++++-----------
- 1 file changed, 23 insertions(+), 16 deletions(-)
+ drivers/net/ethernet/microsoft/mana/mana_en.c | 43 +++++++++++++++++---------
+ 1 file changed, 29 insertions(+), 14 deletions(-)
 
 diff --git a/drivers/net/ethernet/microsoft/mana/mana_en.c b/drivers/net/ethernet/microsoft/mana/mana_en.c
-index d8906169666d838aa06f6983ad9d50aa2b7f67e7..73b61b22b7fd0b3d22f72c2fbd6c8f2c5f3f7e8a 100644
+index d8906169666d838aa06f6983ad9d50aa2b7f67e7..5d3f9cc8d54b7f413ecea958d0dbf2c67ddc7fd1 100644
 --- a/drivers/net/ethernet/microsoft/mana/mana_en.c
 +++ b/drivers/net/ethernet/microsoft/mana/mana_en.c
 @@ -2053,7 +2053,7 @@ static void *mana_get_rxfrag(struct mana_rxq *rxq, struct device *dev,
@@ -88,7 +85,7 @@ index d8906169666d838aa06f6983ad9d50aa2b7f67e7..73b61b22b7fd0b3d22f72c2fbd6c8f2c
  			page_pool_free_va(rxq->page_pool, rx_oob->buf_va, true);
  		}
  
-@@ -2663,16 +2662,24 @@ static int mana_create_page_pool(struct mana_rxq *rxq, struct gdma_context *gc)
+@@ -2663,16 +2662,32 @@ static int mana_create_page_pool(struct mana_rxq *rxq, struct gdma_context *gc)
  	pprm.queue_idx = rxq->rxq_idx;
  	pprm.dev = gc->dev;
  
@@ -104,17 +101,22 @@ index d8906169666d838aa06f6983ad9d50aa2b7f67e7..73b61b22b7fd0b3d22f72c2fbd6c8f2c
 +	 * dma_unmap_single() cycle in the RX fast path, which is especially
 +	 * costly with swiotlb=force.
 +	 *
-+	 * max_len must cover the full backing allocation because the
-+	 * single-buffer path may use higher-order pages.
++	 * max_len is the DMA sync range limit used with
++	 * PP_FLAG_DMA_SYNC_DEV. For fragmented RX buffers, keep the existing
++	 * whole-page limit. For the single-buffer path, cover the full backing
++	 * allocation.
  	 */
 -	if (rxq->frag_count > 1) {
 -		pprm.flags =  PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
--		pprm.max_len = PAGE_SIZE;
++	pprm.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
++	pprm.dma_dir = DMA_FROM_DEVICE;
++
++	if (rxq->frag_count > 1)
+ 		pprm.max_len = PAGE_SIZE;
 -		pprm.dma_dir = DMA_FROM_DEVICE;
 -	}
-+	pprm.flags = PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
-+	pprm.max_len = rxq->alloc_size;
-+	pprm.dma_dir = DMA_FROM_DEVICE;
++	else
++		pprm.max_len = rxq->alloc_size;
  
  	rxq->page_pool = page_pool_create(&pprm);
 +
