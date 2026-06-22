@@ -59,15 +59,6 @@ static bool mana_en_need_log(struct mana_port_context *apc, int err)
 		return true;
 }
 
-static void mana_put_rx_page(struct mana_rxq *rxq, struct page *page,
-			     bool from_pool)
-{
-	if (from_pool)
-		page_pool_put_full_page(rxq->page_pool, page, false);
-	else
-		put_page(page);
-}
-
 /* Microsoft Azure Network Adapter (MANA) functions */
 
 static int mana_open(struct net_device *ndev)
@@ -2059,11 +2050,21 @@ static void *mana_get_rxfrag(struct mana_rxq *rxq, struct device *dev,
 	 * per page.
 	 */
 	if (rxq->frag_count == 1) {
-		/* Reuse XDP dropped page if available */
+		/* Reuse XDP dropped page if available. Note: mana_rx_skb()
+		 * reuses the page only if from_pool is false.
+		 */
 		if (rxq->xdp_save_va) {
 			va = rxq->xdp_save_va;
 			page = virt_to_head_page(va);
 			rxq->xdp_save_va = NULL;
+
+			*da = dma_map_single(dev, va + rxq->headroom,
+					     rxq->datasize, DMA_FROM_DEVICE);
+			if (dma_mapping_error(dev, *da)) {
+				put_page(page);
+				return NULL;
+			}
+			return va;
 		} else {
 			page = page_pool_dev_alloc_pages(rxq->page_pool);
 			if (!page)
@@ -2071,16 +2072,11 @@ static void *mana_get_rxfrag(struct mana_rxq *rxq, struct device *dev,
 
 			*from_pool = true;
 			va = page_to_virt(page);
+			*da = page_pool_get_dma_addr(page) + rxq->headroom;
+			*pp_page = page;
+			*dma_sync_offset = rxq->headroom;
+			return va;
 		}
-
-		*da = dma_map_single(dev, va + rxq->headroom, rxq->datasize,
-				     DMA_FROM_DEVICE);
-		if (dma_mapping_error(dev, *da)) {
-			mana_put_rx_page(rxq, page, *from_pool);
-			return NULL;
-		}
-
-		return va;
 	}
 
 	page =  page_pool_dev_alloc_frag(rxq->page_pool, &offset,
@@ -2112,7 +2108,7 @@ static void mana_refill_rx_oob(struct device *dev, struct mana_rxq *rxq,
 			     &dma_sync_offset);
 	if (!va)
 		return;
-	if (!rxoob->from_pool || rxq->frag_count == 1) {
+	if (!rxoob->from_pool) {
 		dma_unmap_single(dev, rxoob->sgl[0].address, rxq->datasize,
 				 DMA_FROM_DEVICE);
 	} else {
@@ -2577,10 +2573,12 @@ static void mana_destroy_rxq(struct mana_port_context *apc,
 
 		page = virt_to_head_page(rx_oob->buf_va);
 
-		if (rxq->frag_count == 1 || !rx_oob->from_pool) {
+		if (!rx_oob->from_pool) {
 			dma_unmap_single(dev, rx_oob->sgl[0].address,
 					 rx_oob->sgl[0].size, DMA_FROM_DEVICE);
-			mana_put_rx_page(rxq, page, rx_oob->from_pool);
+			put_page(page);
+		} else if (rxq->frag_count == 1) {
+			page_pool_put_full_page(rxq->page_pool, page, false);
 		} else {
 			page_pool_free_va(rxq->page_pool, rx_oob->buf_va, true);
 		}
@@ -2702,14 +2700,21 @@ static int mana_create_page_pool(struct mana_rxq *rxq, struct gdma_context *gc)
 	pprm.queue_idx = rxq->rxq_idx;
 	pprm.dev = gc->dev;
 
-	/* Let the page pool do the dma map when page sharing with multiple
-	 * fragments enabled for rx buffers.
+	/* Let the page pool do the DMA map for all steady-state RX buffers.
+	 *
+	 * For frag_count > 1 this is required because multiple RX buffers
+	 * share a page.
+	 *
+	 * For frag_count == 1 (jumbo MTU or XDP), page-pool-origin buffers
+	 * can keep their DMA mapping across reuse and avoid the expensive
+	 * per-packet dma_map_single() / dma_unmap_single() cycle in the RX
+	 * fast path. Non-page-pool exceptional paths still use explicit DMA
+	 * mapping: normally these non-page-pool RX buffers will get replaced
+	 * soon with page-pool RX buffers once RX starts to work.
 	 */
-	if (rxq->frag_count > 1) {
-		pprm.flags =  PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
-		pprm.max_len = PAGE_SIZE;
-		pprm.dma_dir = DMA_FROM_DEVICE;
-	}
+	pprm.flags =  PP_FLAG_DMA_MAP | PP_FLAG_DMA_SYNC_DEV;
+	pprm.dma_dir = DMA_FROM_DEVICE;
+	pprm.max_len = (rxq->frag_count > 1) ? PAGE_SIZE : rxq->alloc_size;
 
 	rxq->page_pool = page_pool_create(&pprm);
 
